@@ -1,0 +1,121 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Deploys an EC2 Instance (Configured via user data), IAM Role to have ssm-agent installed on certain AMIs 
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Network Configuration"
+        Parameters:
+          - SubnetId
+      - Label:
+          default: "EC2 Configuration"
+        Parameters:
+          - InstanceType
+          - InstanceImageId       
+      - Label:
+          default: "IAM Configuration"
+        Parameters:
+          - SSMIAMRole
+         
+Parameters:
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Select a private subnet with Internet access. (user data is dependent on Internet for downloading binaries during EC2 provisioning)
+  InstanceImageId:
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Description: Amazon Linux 2 Image
+    Default: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+  InstanceType:
+    Type: String
+    Description: "Specify the instance size to use. Parallel_Account Sizing: AWS: 10=r6i.large, 12=r6i.xlarge, 14-18=r6i.2xlarge / AWS-CN: Use r5 equivalent"
+    Default: r6i.xlarge
+    AllowedValues:
+      - r6i.large
+      - r6i.xlarge
+      - r6i.2xlarge
+      - r5.large
+      - r5.xlarge
+      - r5.2xlarge
+  SecurityGroupIds:
+    Description: Security groups that can be used to access the EC2 instances
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    ConstraintDescription: must be list of EC2 security group ids
+  SSMIAMRole:
+    Type: "String"
+    Description: "Name of IAM Role to be assumed in the member accounts."
+    Default: "SSMIAMRole"
+
+Resources:
+
+  Ec2Instance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId:
+        Ref: "InstanceImageId"
+      InstanceType: !Ref InstanceType
+      BlockDeviceMappings:
+        - DeviceName: "/dev/xvda"
+          Ebs:
+            VolumeSize: "24"
+            DeleteOnTermination: true
+            VolumeType: "gp3"
+            Encrypted: true
+      SubnetId: !Ref SubnetId
+      IamInstanceProfile: !Ref IAMSSMRole
+      SecurityGroupIds:
+        - !GetAtt "SecurityGroupIds"
+      UserData:
+        Fn::Base64: 
+          Fn::Sub: |
+            #!/bin/bash
+
+            #Upgrade the OS
+            sudo yum upgrade -y
+
+            #Remove OS distribution based python3
+            sudo yum erase python3 -y
+
+            #Install ssm-agent and dependencies
+            sudo yum install -y python
+
+            cd /tmp
+            wget https://www.python.org/ftp/python/3.9.16/Python-3.9.16.tgz
+            tar zxf Python-3.9.16.tgz
+            cd Python-3.9.16
+            ./configure --enable-optimizations
+            sudo make altinstall
+
+            #Link python3.9 to /bin
+            ln -s /usr/local/bin/python3.9 /bin/python3
+            sudo yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+            sudo systemctl enable amazon-ssm-agent
+            sudo systemctl start amazon-ssm-agent
+
+            # Please customize for the "flavor" of linux that you have chosen
+            # By adding below commands in userdata, you can install aws ssm agent on ubuntu 16.04
+            #     !/bin/bash
+            #     mkdir /tmp/ssm
+            #     cd /tmp/ssm
+            #     wget https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/debian_amd64/amazon-ssm-agent.deb
+            #     sudo dpkg -i amazon-ssm-agent.deb
+            #     sudo start amazon-ssm-agent
+            #     sudo systemctl enable amazon-ssm-agent
+            #     By adding below commands in userdata, you can install aws ssm agent on centos 7
+            #     !/bin/bash
+            #     sudo yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
+            #     sudo systemctl enable amazon-ssm-agent
+            #     sudo systemctl start amazon-ssm-agent
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet: !Ref SecurityGroupIds
+          SubnetId: !Ref SubNetIds
+ 
+  WebServerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref SSMIAMRole
