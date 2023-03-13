@@ -62,10 +62,10 @@ Resources:
             DeleteOnTermination: true
             VolumeType: "gp3"
             Encrypted: true
-      SubnetId: !Ref SubnetId
-      IamInstanceProfile: !Ref IAMSSMRole
+      SubnetId: !Ref "SubnetId"
+      IamInstanceProfile: !Ref "SSMIAMRole"
       SecurityGroupIds:
-        - !GetAtt "SecurityGroupIds"
+        - !Ref "SecurityGroupIds"
       UserData:
         Fn::Base64: 
           Fn::Sub: |
@@ -111,7 +111,7 @@ Resources:
         - AssociatePublicIpAddress: "true"
           DeviceIndex: "0"
           GroupSet: !Ref SecurityGroupIds
-          SubnetId: !Ref SubNetIds
+          SubnetId: !Ref SubnetId
  
   WebServerInstanceProfile:
     Type: AWS::IAM::InstanceProfile
